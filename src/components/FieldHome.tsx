@@ -13,11 +13,17 @@ interface EventRow {
   daily_end: string
 }
 
+const blankTrip = { start: '', end: '', fuel: '', fine: '' }
 type Mode = { kind: 'in' | 'out' | 'proof'; event: EventRow; att?: any } | null
+interface Van { event_id: string; vehicle_id: string; label: string | null; number: string }
 
 export default function FieldHome({ profile }: { profile: Profile }) {
   const [events, setEvents] = useState<EventRow[]>([])
   const [records, setRecords] = useState<any[]>([])
+  const [vans, setVans] = useState<Van[]>([])
+  const [vanFor, setVanFor] = useState<Record<string, string>>({})
+  const [trips, setTrips] = useState<any[]>([])
+  const [trip, setTrip] = useState<Record<string, { start: string; end: string; fuel: string; fine: string }>>({})
   const [mode, setMode] = useState<Mode>(null)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
@@ -42,7 +48,15 @@ export default function FieldHome({ profile }: { profile: Profile }) {
       .order('work_date', { ascending: false })
     if (t.error) setErr(t.error.message)
     setRecords((t.data as any[]) || [])
-  }, [profile.id])
+
+    const v = await supabase.from('event_vehicle_list').select('*')
+    setVans((v.data as Van[]) || [])
+    if (profile.role === 'driver') {
+      const l = await supabase.from('van_logs').select('*, vehicle:vehicles(label,number)')
+        .eq('driver_id', profile.id).gte('work_date', istDate()).order('created_at', { ascending: false })
+      setTrips((l.data as any[]) || [])
+    }
+  }, [profile.id, profile.role])
 
   useEffect(() => {
     load()
@@ -59,12 +73,13 @@ export default function FieldHome({ profile }: { profile: Profile }) {
     return path
   }
 
-  async function savePhoto(eventId: string, attId: string | null, kind: string, path: string, shot: Shot) {
+  async function savePhoto(eventId: string, attId: string | null, kind: string, path: string, shot: Shot, vehicleId?: string | null) {
     const { error } = await supabase.from('event_photos').insert({
       event_id: eventId,
       attendance_id: attId,
       uploaded_by: profile.id,
       kind,
+      vehicle_id: vehicleId || null,
       storage_path: path,
       captured_at: shot.capturedAt.toISOString(),
       lat: shot.lat,
@@ -113,7 +128,7 @@ export default function FieldHome({ profile }: { profile: Profile }) {
         await savePhoto(event.id, att.id, 'check_out', path, shot)
         setMsg('Signed out. Thank you!')
       } else {
-        await savePhoto(event.id, att?.id ?? null, 'proof', path, shot)
+        await savePhoto(event.id, att?.id ?? null, 'proof', path, shot, vanFor[event.id] || null)
         setMsg('Proof photo saved.')
       }
     } catch (e: any) {
@@ -123,6 +138,24 @@ export default function FieldHome({ profile }: { profile: Profile }) {
       setBusy(false)
       load()
     }
+  }
+
+  async function saveTrip(ev: EventRow) {
+    const t = trip[ev.id]
+    const veh = vanFor[ev.id]
+    if (!veh) return setErr('Choose the van first.')
+    if (!t || t.start === '' || t.end === '') return setErr('Enter start and end km.')
+    if (Number(t.end) < Number(t.start)) return setErr('End km cannot be less than start km.')
+    setErr(''); setMsg('')
+    const { error } = await supabase.from('van_logs').insert({
+      vehicle_id: veh, driver_id: profile.id, event_id: ev.id, work_date: istDate(),
+      start_km: Math.round(Number(t.start)), end_km: Math.round(Number(t.end)),
+      fuel_cost: Number(t.fuel || 0), fine: Number(t.fine || 0),
+    })
+    if (error) return setErr(error.message)
+    setTrip({ ...trip, [ev.id]: { start: '', end: '', fuel: '', fine: '' } })
+    setMsg('Trip saved.')
+    load()
   }
 
   if (mode)
@@ -166,6 +199,41 @@ export default function FieldHome({ profile }: { profile: Profile }) {
             {rec && !rec.check_out_at && (
               <>
                 <div className="ok">Signed in at {fmtTime(rec.check_in_at)}</div>
+                {vans.filter((x) => x.event_id === ev.id).length > 0 && (
+                  <label>Van
+                    <select value={vanFor[ev.id] ?? ''} onChange={(e) => setVanFor({ ...vanFor, [ev.id]: e.target.value })}>
+                      <option value="">Select van…</option>
+                      {vans.filter((x) => x.event_id === ev.id).map((x) => (
+                        <option key={x.vehicle_id} value={x.vehicle_id}>{x.label || x.number}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {profile.role === 'driver' && vans.some((x) => x.event_id === ev.id) && (
+                  <div className="stack">
+                    <strong>Trip log</strong>
+                    <div className="row gap">
+                      {(['start', 'end'] as const).map((k) => (
+                        <label className="grow" key={k}>{k === 'start' ? 'Start km' : 'End km'}
+                          <input inputMode="numeric" value={trip[ev.id]?.[k] ?? ''}
+                            onChange={(e) => setTrip({ ...trip, [ev.id]: { ...blankTrip, ...trip[ev.id], [k]: e.target.value.replace(/\D/g, '') } })} />
+                        </label>
+                      ))}
+                    </div>
+                    <div className="row gap">
+                      {(['fuel', 'fine'] as const).map((k) => (
+                        <label className="grow" key={k}>{k === 'fuel' ? 'Fuel ₹' : 'Fine ₹'}
+                          <input inputMode="decimal" value={trip[ev.id]?.[k] ?? ''}
+                            onChange={(e) => setTrip({ ...trip, [ev.id]: { ...blankTrip, ...trip[ev.id], [k]: e.target.value } })} />
+                        </label>
+                      ))}
+                    </div>
+                    <button className="btn" onClick={() => saveTrip(ev)}>Save trip</button>
+                    {trips.filter((x) => x.event_id === ev.id).map((x) => (
+                      <div className="muted" key={x.id}>{x.vehicle?.label || x.vehicle?.number}: {x.start_km}–{x.end_km} km ({x.total_km} km, {x.extra_km} extra)</div>
+                    ))}
+                  </div>
+                )}
                 <div className="row gap">
                   <button className="btn" disabled={busy} onClick={() => setMode({ kind: 'proof', event: ev, att: rec })}>
                     Proof photo

@@ -7,8 +7,9 @@ import Approvals from './components/Approvals'
 import AdminEvents from './components/AdminEvents'
 import AdminStaff from './components/AdminStaff'
 import Customers from './components/Customers'
+import AdminVans from './components/AdminVans'
 
-type Tab = 'approvals' | 'events' | 'staff' | 'customers'
+type Tab = 'approvals' | 'events' | 'vans' | 'staff' | 'customers'
 
 export default function App() {
   const [ready, setReady] = useState(false)
@@ -82,6 +83,7 @@ export default function App() {
       </div>
     )
   else if (tab === 'events' && office) body = <AdminEvents />
+  else if (tab === 'vans' && office) body = <AdminVans />
   else if (tab === 'staff' && office) body = <AdminStaff me={profile} />
   else if (tab === 'customers' && office) body = <Customers />
   else body = <Approvals />
@@ -100,6 +102,7 @@ export default function App() {
         <nav className="tabs">
           <button className={tab === 'approvals' ? 'on' : ''} onClick={() => setTab('approvals')}>Approvals</button>
           {office && <button className={tab === 'events' ? 'on' : ''} onClick={() => setTab('events')}>Events</button>}
+          {office && <button className={tab === 'vans' ? 'on' : ''} onClick={() => setTab('vans')}>Vans</button>}
           {office && <button className={tab === 'staff' ? 'on' : ''} onClick={() => setTab('staff')}>Staff</button>}
           {office && <button className={tab === 'customers' ? 'on' : ''} onClick={() => setTab('customers')}>Customers</button>}
         </nav>
