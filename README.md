@@ -5,7 +5,7 @@ Built with React + Vite, backed by Supabase.
 
 ## One-time setup
 
-1. **Database patch.** In Supabase SQL Editor, run `supabase/patch2.sql` (after `ops_schema.sql`).
+1. **Database patches.** In Supabase SQL Editor, run `supabase/patch2.sql`, then `supabase/patch3.sql` (vans module), after `ops_schema.sql`.
 2. **Edge Function.** Supabase dashboard -> Edge Functions -> Deploy a new function named `staff-admin`.
    Paste the code from `supabase/functions/staff-admin/index.ts`.
    In the function settings, switch **Verify JWT OFF**.
